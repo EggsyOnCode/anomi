@@ -1,5 +1,7 @@
 package orderbook
 
+import "github.com/nikolaydubina/fpdecimal"
+
 type Asset string
 
 const (
@@ -20,4 +22,5 @@ func IsAllowedAsset(asset string) bool {
 
 func init() {
 	Assets = []Asset{BTC, PKR}
+    fpdecimal.FractionDigits = 8
 }
