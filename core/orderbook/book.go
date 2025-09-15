@@ -9,7 +9,7 @@ import (
 )
 
 const (
-	bcSize int = 50000
+	BCSIZE int = 50000
 )
 
 type OrderBook struct {
@@ -19,12 +19,18 @@ type OrderBook struct {
 	bc    *BuyerCache
 }
 
-func NewOrderBook(base, quote string) (*OrderBook, error) {
+func NewOrderBook(base, quote string, bcSize int) (*OrderBook, error) {
 	if !IsAllowedAsset(base) || !IsAllowedAsset(quote) {
 		return nil, fmt.Errorf("unsupported asset")
 	}
 
-	bc, err := NewBuyerCache(bcSize)
+	var size int
+	if bcSize == 0 {
+		size = BCSIZE
+	} else {
+		size = bcSize
+	}
+	bc, err := NewBuyerCache(size)
 	if err != nil {
 		return nil, err
 	}
@@ -136,8 +142,19 @@ func (o *OrderBook) AddOrder(order *engine.Order) (*engine.Done, []*Receipt, err
 	return done, receipts, nil
 }
 
-func (o *OrderBook) RemoveOrder(order *engine.Order) *engine.Order {
-	return o.CancelOrder(order.ID())
+func (o *OrderBook) RemoveOrder(id string) (*engine.Order, error) {
+	// remove from cache
+	pos, ok := o.bc.Get(id)
+	if ok {
+		// partial fill detected
+		// pos.left != pos.order.originalQnt
+		if !pos.Left.Equal(pos.Order.OriginalQty()) {
+			// we can't allow removal since settlement will be difficult
+			return nil, fmt.Errorf("can't remove order now since its partially filled, settlement at this stage would be difficult")
+		}
+	}
+	o.bc.Remove(id)
+	return o.CancelOrder(id), nil
 }
 
 func (o *OrderBook) Symbol() string {
