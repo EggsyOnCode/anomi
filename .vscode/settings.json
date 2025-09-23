@@ -1,0 +1,13 @@
+{
+    // Specifies the path to the Go binary. 
+    // This tells VS Code which version of Go to use for all Go-related tasks, 
+    // including running tests and linting.
+    "go.gopath": "/home/xen/go",
+    "go.alternateTools": {
+        "go": "/home/xen/.gvm/gos/go1.24.6/bin/go"
+    },
+    // This setting ensures that the Go extension uses the workspace's Go version, 
+    // which helps prevent version conflicts.
+    "go.toolsManagement.autoUpdate": false,
+    "go.useLanguageServer": true
+}
