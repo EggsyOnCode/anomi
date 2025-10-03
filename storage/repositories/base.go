@@ -45,7 +45,9 @@ func (r *BaseRepository[T]) GetByID(ctx context.Context, id string) (T, error) {
 
 // Update updates an existing entity
 func (r *BaseRepository[T]) Update(ctx context.Context, entity T) error {
-	_, err := r.db.NewUpdate().Model(&entity).Where("id = ?", entity).Exec(ctx)
+	// Extract ID from entity - this assumes the entity has an ID field
+	// For now, we'll use a generic approach that works with our models
+	_, err := r.db.NewUpdate().Model(&entity).WherePK().Exec(ctx)
 	return err
 }
 
@@ -60,14 +62,14 @@ func (r *BaseRepository[T]) Delete(ctx context.Context, id string) error {
 func (r *BaseRepository[T]) List(ctx context.Context, limit, offset int) ([]T, error) {
 	var entities []T
 	query := r.db.NewSelect().Model(&entities)
-	
+
 	if limit > 0 {
 		query = query.Limit(limit)
 	}
 	if offset > 0 {
 		query = query.Offset(offset)
 	}
-	
+
 	err := query.Scan(ctx)
 	return entities, err
 }

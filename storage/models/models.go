@@ -196,6 +196,9 @@ func (r *Receipt) ToEngine() (*orderbook.Receipt, error) {
 	}, nil
 }
 
+// IMP: receipt from a biz pov is a superstruct that holds lots of Trades.. But for db, we need to create one receipt per trade
+// a receipt is when a user say posted a big ask for 10 BTc that will be 
+// eaten by lots of bid trades.. but only one receipt will be minted to the seller
 // Helper function to create multiple receipts from orderbook.Receipt
 func CreateReceiptsFromEngine(receipt *orderbook.Receipt) []*Receipt {
 	receipts := make([]*Receipt, len(receipt.Trades))

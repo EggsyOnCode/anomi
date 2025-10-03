@@ -15,9 +15,10 @@ import (
 )
 
 type PgDB struct {
-	db         *bun.DB
-	amqp       *amqp.Connection
-	factory    repositories.RepositoryFactory
+	db      *bun.DB
+	amqp    *amqp.Connection
+	factory repositories.RepositoryFactory
+	handler *PgSQLHandler
 }
 
 func NewPgDB(conn string, amqp *amqp.Connection) (*PgDB, error) {
@@ -30,6 +31,7 @@ func NewPgDB(conn string, amqp *amqp.Connection) (*PgDB, error) {
 		db:      db,
 		amqp:    amqp,
 		factory: repositories.NewRepositoryFactory(db),
+		handler: NewPgSQLHandler(db),
 	}
 
 	if err := pgdb.setupDb(); err != nil {
@@ -162,21 +164,15 @@ func (pg *PgDB) launchConsumer() error {
 }
 
 func (pg *PgDB) handleMessage(msg amqp.Delivery) {
-	_ = context.Background()
-
-	log.Printf("Received message: %s", string(msg.Body))
-
-	// TODO: Implement message handling logic based on routing key
-	// This is where you'll parse the message and perform database operations
-	// Example usage of repositories:
-	// orderRepo := pg.factory.NewOrderRepository()
-	// tradeRepo := pg.factory.NewTradeRepository()
-	// receiptRepo := pg.factory.NewReceiptRepository()
-
-	// Acknowledge the message
-	if err := msg.Ack(false); err != nil {
-		log.Printf("Failed to acknowledge message: %v", err)
+	// Delegate to the handler
+	if err := pg.handler.HandleMessage(msg); err != nil {
+		log.Printf("Failed to handle message: %v", err)
 	}
+}
+
+// GetHandler returns the PostgreSQL handler
+func (pg *PgDB) GetHandler() *PgSQLHandler {
+	return pg.handler
 }
 
 // Close closes the database connection
