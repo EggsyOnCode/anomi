@@ -6,6 +6,7 @@ import (
 
 	"github.com/EggysOnCode/anomi/core/orderbook"
 	"github.com/EggysOnCode/anomi/core/orderbook/engine"
+	"github.com/EggysOnCode/anomi/crypto"
 	"github.com/google/uuid"
 )
 
@@ -23,6 +24,8 @@ const (
 
 	// Receipt operations (put only)
 	RECEIPT_PUT
+
+	Handshake
 )
 
 // Base internal message structure
@@ -65,6 +68,10 @@ func NewOrderUpdateMessage(order *engine.Order) (*InternalMessage, error) {
 	return NewInternalMessage(ORDER_UPDATE, order)
 }
 
+func NewHandshakeMessage(handshake *InternalPeerServerInfoMsg) (*InternalMessage, error) {
+	return NewInternalMessage(Handshake, handshake)
+}
+
 // NewTradePutMessage creates a message for putting a trade
 func NewTradePutMessage(trade *engine.TradeOrder) (*InternalMessage, error) {
 	return NewInternalMessage(TRADE_PUT, trade)
@@ -97,4 +104,14 @@ func (m *InternalMessage) UnmarshalData(target interface{}) error {
 // Helper function to generate unique message IDs
 func generateMessageID() string {
 	return uuid.NewString()
+}
+
+// CreateRPCMessage creates an RPC message from an internal message
+func (m *InternalMessage) CreateRPCMessage(fromSock, fromID string, codec Codec) (*RPCMessage, error) {
+	return BuildFromInternalMessage(fromSock, fromID, codec, m)
+}
+
+// CreateRPCMessageWithSignature creates an RPC message with signature from an internal message
+func (m *InternalMessage) CreateRPCMessageWithSignature(fromSock, fromID string, codec Codec, sig crypto.Signature) (*RPCMessage, error) {
+	return BuildFromInternalMessageWithSignature(fromSock, fromID, codec, m, sig)
 }

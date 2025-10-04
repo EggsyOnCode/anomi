@@ -38,18 +38,36 @@ func NewErrorResponse(err string, message string) *ResponseWrapper {
 
 type CreateOrderRequest struct {
 	OrderType string `json:"orderType" validate:"required,oneof=MARKET LIMIT STOP-LIMIT"`
-	UserID    string `json:"userID" validate:"required"`
+	UserID    string `json:"userID" validate:"required,min=1"`
 	Side      int    `json:"side" validate:"required,oneof=0 1"` // 0 = BUY, 1 = SELL
 	IsQuote   bool   `json:"isQuote"`
-	Quantity  string `json:"quantity" validate:"required"`
-	Price     string `json:"price" validate:"required"`
-	Stop      string `json:"stop"`
-	TIF       string `json:"tif" validate:"required,oneof=GTC IOC FOK"`
-	OCO       string `json:"oco"`
+	Quantity  string `json:"quantity" validate:"required,min=1"`
+	Price     string `json:"price"` // Required for LIMIT and STOP-LIMIT orders
+	Stop      string `json:"stop"`  // Required for STOP-LIMIT orders
+	TIF       string `json:"tif"`   // Required for LIMIT orders
+	OCO       string `json:"oco"`   // Optional OCO reference
 }
 
 type UpdateOrderRequest struct {
-	Quantity string `json:"quantity"`
-	Price    string `json:"price"`
-	Stop     string `json:"stop"`
+	Quantity string `json:"quantity" validate:"omitempty,min=1"`
+	Price    string `json:"price" validate:"omitempty,min=1"`
+	Stop     string `json:"stop" validate:"omitempty,min=1"`
+}
+
+type OrderResponse struct {
+	ID          string `json:"id"`
+	OrderType   string `json:"orderType"`
+	UserID      string `json:"userID"`
+	Side        string `json:"side"`
+	IsQuote     bool   `json:"isQuote"`
+	Quantity    string `json:"quantity"`
+	OriginalQty string `json:"originalQty"`
+	Price       string `json:"price"`
+	Stop        string `json:"stop"`
+	Canceled    bool   `json:"canceled"`
+	Role        string `json:"role"`
+	TIF         string `json:"tif"`
+	OCO         string `json:"oco"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 }

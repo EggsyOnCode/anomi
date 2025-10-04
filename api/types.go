@@ -4,13 +4,20 @@ import (
 	"time"
 )
 
-// ResponseWrapper is a common response wrapper for all mediums
+// RequestContext represents the context of an incoming request
+type RequestContext struct {
+	UserID    string `json:"userID"`
+	RequestID string `json:"requestID"`
+	Source    string `json:"source"` // "http" or "p2p"
+}
+
+// ResponseWrapper is a common response wrapper for HTTP responses
 type ResponseWrapper struct {
 	Success   bool        `json:"success"`
 	Message   string      `json:"message,omitempty"`
 	Data      interface{} `json:"data,omitempty"`
 	Error     string      `json:"error,omitempty"`
-	Timestamp time.Time   `json:"timestamp"`
+	Timestamp string      `json:"timestamp"`
 	RequestID string      `json:"request_id,omitempty"`
 }
 
@@ -20,7 +27,7 @@ func NewSuccessResponse(data interface{}, message string) *ResponseWrapper {
 		Success:   true,
 		Message:   message,
 		Data:      data,
-		Timestamp: time.Now(),
+		Timestamp: time.Now().Format(time.RFC3339),
 	}
 }
 
@@ -30,20 +37,44 @@ func NewErrorResponse(err string, message string) *ResponseWrapper {
 		Success:   false,
 		Error:     err,
 		Message:   message,
-		Timestamp: time.Now(),
+		Timestamp: time.Now().Format(time.RFC3339),
 	}
 }
 
-// RequestContext holds common request context information
-type RequestContext struct {
-	UserID    string
-	RequestID string
-	Source    string // "http", "p2p", etc.
+// Request/Response DTOs
+
+type CreateOrderRequest struct {
+	OrderType string `json:"orderType" validate:"required,oneof=MARKET LIMIT STOP-LIMIT"`
+	UserID    string `json:"userID" validate:"required,min=1"`
+	Side      int    `json:"side" validate:"required,oneof=0 1"` // 0 = BUY, 1 = SELL
+	IsQuote   bool   `json:"isQuote"`
+	Quantity  string `json:"quantity" validate:"required,min=1"`
+	Price     string `json:"price"` // Required for LIMIT and STOP-LIMIT orders
+	Stop      string `json:"stop"`  // Required for STOP-LIMIT orders
+	TIF       string `json:"tif"`   // Required for LIMIT orders
+	OCO       string `json:"oco"`   // Optional OCO reference
 }
 
-// HandlerResult represents the result from business handlers
-type HandlerResult struct {
-	Data    interface{}
-	Error   error
-	Message string
+type UpdateOrderRequest struct {
+	Quantity string `json:"quantity" validate:"omitempty,min=1"`
+	Price    string `json:"price" validate:"omitempty,min=1"`
+	Stop     string `json:"stop" validate:"omitempty,min=1"`
+}
+
+type OrderResponse struct {
+	ID          string `json:"id"`
+	OrderType   string `json:"orderType"`
+	UserID      string `json:"userID"`
+	Side        string `json:"side"`
+	IsQuote     bool   `json:"isQuote"`
+	Quantity    string `json:"quantity"`
+	OriginalQty string `json:"originalQty"`
+	Price       string `json:"price"`
+	Stop        string `json:"stop"`
+	Canceled    bool   `json:"canceled"`
+	Role        string `json:"role"`
+	TIF         string `json:"tif"`
+	OCO         string `json:"oco"`
+	CreatedAt   string `json:"createdAt,omitempty"`
+	UpdatedAt   string `json:"updatedAt,omitempty"`
 }

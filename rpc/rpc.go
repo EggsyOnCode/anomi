@@ -8,8 +8,8 @@ import (
 )
 
 type RPCMessage struct {
-	FromID    string      `json:"from_id"`
-	Payload   []byte      `json:"payload"`
+	FromID    string           `json:"from_id"`
+	Payload   []byte           `json:"payload"`
 	Signature crypto.Signature `json:"signature"`
 }
 
@@ -28,18 +28,11 @@ func (m *RPCMessage) Bytes(codec Codec) ([]byte, error) {
 // after receiving a msg, it must first be decoded by
 // Codec, then passed to RPCProcessor
 type DecodedMsg struct {
-	FromSock  string
 	FromId    string
-	Topic     MesageTopic
-	Data      any // this can be replaced with a more stricter data type like NewEpochMesage (i.e from message.go)
+	Data      *InternalMessage // Use InternalMessage instead of generic any
 	Signature crypto.Signature
 }
 
-// All RPCProcessor i.e. Observer, Reporter etc have to implement this
-type RPCProcessor interface {
-	// Message processed will be decoded msg
-	ProcessMessage(*DecodedMsg) error
-}
 
 type RPCDecodeFunc func(RPCMessage, Codec) (*DecodedMsg, error)
 
