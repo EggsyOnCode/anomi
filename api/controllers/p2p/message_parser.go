@@ -43,6 +43,13 @@ func (p *MessageParser) ParseRPCMessage(rpcMsg *rpc.RPCMessage) (*api.RequestCon
 			return nil, nil, fmt.Errorf("failed to parse order message: %w", err)
 		}
 		businessData = order
+		// Try to extract symbol from the order data if present in JSON (backward compatibility is limited)
+		var raw map[string]interface{}
+		if err := json.Unmarshal(internalMsg.Data, &raw); err == nil {
+			if symVal, ok := raw["symbol"].(string); ok && symVal != "" {
+				ctx.Symbol = symVal
+			}
+		}
 
 	case rpc.TRADE_PUT:
 		trade, err := p.parseTradeMessage(internalMsg)

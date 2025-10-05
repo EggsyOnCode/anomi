@@ -6,7 +6,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-	"log"
 	"sync"
 	"time"
 
@@ -17,8 +16,8 @@ import (
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
-	discovery "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"github.com/libp2p/go-libp2p/core/peer"
+	discovery "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
 	"go.uber.org/zap"
 
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
@@ -43,7 +42,6 @@ type LibP2pTransport struct {
 	// default codec is json, we can set custom using setCodec
 	codec  rpc.Codec
 	logger *zap.SugaredLogger
-	pk     crypto.PrivateKey
 
 	streams  map[peer.ID]network.Stream // Cache for active streams
 	streamMu sync.Mutex                 // to protect the streams map
@@ -68,13 +66,13 @@ func (lt *LibP2pTransport) Start() {
 	limiter := rcmgr.NewFixedLimiter(rcmgr.DefaultLimits.AutoScale())
 	rmgr, err := rcmgr.NewResourceManager(limiter)
 	if err != nil {
-		log.Fatal(err)
+		panic(err)
 	}
 
 	host, err := libp2p.New(
 		libp2p.ResourceManager(rmgr),
 		libp2p.ListenAddrStrings(
-			"/ip4/127.0.0.1/tcp/0",
+			"/ip4/0.0.0.0/tcp/0",
 		),
 		libp2p.Security(libp2ptls.ID, libp2ptls.New),
 	)
@@ -93,7 +91,9 @@ func (lt *LibP2pTransport) Start() {
 	host.SetStreamHandler(protocolID, lt.handleStream)
 
 	// start the p2p discovery service
+	lt.logger.Info("Starting peer discovery...")
 	lt.DiscoverPeers()
+	lt.logger.Info("Peer discovery started")
 
 	// go func() {
 	// 	for {
@@ -129,6 +129,9 @@ func (lt *LibP2pTransport) ConsumePeers() <-chan *Peer {
 }
 
 func (lt *LibP2pTransport) Addr() string {
+	if lt.host == nil || len(lt.host.Addrs()) == 0 {
+		return "0.0.0.0:0" // Return a default address if not initialized
+	}
 	return lt.host.Addrs()[0].String()
 }
 
@@ -233,6 +236,11 @@ func (lt *LibP2pTransport) SendMsg(id string, data []byte) error {
 
 // braodcast
 func (lt *LibP2pTransport) Broadcast(data []byte) {
+	if lt.host == nil {
+		lt.logger.Warn("Cannot broadcast: host not initialized")
+		return
+	}
+
 	peersId := lt.host.Network().Peers()
 
 	for _, peer := range peersId {
@@ -259,16 +267,17 @@ type discoveryNotifee struct {
 
 // Called when a new peer is discovered
 func (d *discoveryNotifee) HandlePeerFound(p peer.AddrInfo) {
-	// logger.Get().Sugar().Info("Discovered a new peer:", p.ID, " host id ", d.h.ID())
+	fmt.Printf("Discovered a new peer: %s, host id: %s\n", p.ID, d.h.ID())
 	// DIRTY solution: adding a random delay of upto 2sec to avoid the TCP simulatenous connect error
 	time.Sleep(getPeerDelay(p.ID))
 
 	// Attempt to connect to the peer
 	if err := d.h.Connect(context.Background(), p); err != nil {
-		fmt.Println("Connection failed:", err)
+		fmt.Printf("Connection failed: %v\n", err)
 		return
 	}
 
+	fmt.Printf("Successfully connected to peer: %s\n", p.ID)
 	// Add the peer to the channel (eventually to be consumed by the server)
 	peer := NewPeer(p.ID.String(), p.Addrs[0].String())
 	d.peerCh <- peer

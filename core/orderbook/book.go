@@ -4,8 +4,9 @@ import (
 	"fmt"
 
 	"github.com/EggysOnCode/anomi/core/orderbook/engine"
-	"github.com/ethereum/go-ethereum/log"
+	"github.com/EggysOnCode/anomi/logger"
 	"github.com/nikolaydubina/fpdecimal"
+	"go.uber.org/zap"
 )
 
 const (
@@ -14,15 +15,16 @@ const (
 
 type OrderBook struct {
 	*engine.OrderBook
-	Base  Asset
-	Quote Asset
-	bc    *BuyerCache
+	Base   Asset
+	Quote  Asset
+	bc     *BuyerCache
+	logger *zap.Logger
 }
 
 func NewOrderBook(base, quote string, bcSize int) (*OrderBook, error) {
-	if !IsAllowedAsset(base) || !IsAllowedAsset(quote) {
-		return nil, fmt.Errorf("unsupported asset")
-	}
+	// if !IsAllowedAsset(base) || !IsAllowedAsset(quote) {
+	// 	return nil, fmt.Errorf("unsupported asset")
+	// }
 
 	var size int
 	if bcSize == 0 {
@@ -35,11 +37,19 @@ func NewOrderBook(base, quote string, bcSize int) (*OrderBook, error) {
 		return nil, err
 	}
 
+	orderbookLogger := logger.Get().With(
+		zap.String("base", base),
+		zap.String("quote", quote),
+	)
+
+	orderbookLogger.Info("OrderBook created", zap.Int("cacheSize", size))
+
 	return &OrderBook{
 		engine.NewOrderBook(),
 		Asset(base),
 		Asset(quote),
 		bc,
+		orderbookLogger,
 	}, nil
 }
 
@@ -68,13 +78,12 @@ func (o *OrderBook) AddOrder(order *engine.Order) (*engine.Done, []*Receipt, err
 
 		// Monitor low liquidity if partially filled
 		if left.GreaterThan(fpdecimal.Zero) {
-			//TODO: setup a proper logger for anomi
-			log.Warn("Market BUY partially filled due to low liquidity",
-				"user", order.ToSimple().UserId,
-				"orderID", order.ID(),
-				"requestedQty", order.OriginalQty(),
-				"filledQty", filled,
-				"leftQty", left,
+			o.logger.Warn("Market BUY partially filled due to low liquidity",
+				zap.String("user", order.ToSimple().UserId),
+				zap.String("orderID", order.ID()),
+				zap.String("requestedQty", order.OriginalQty().String()),
+				zap.String("filledQty", filled.String()),
+				zap.String("leftQty", left.String()),
 			)
 		}
 

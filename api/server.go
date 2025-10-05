@@ -6,11 +6,13 @@ import (
 
 	"github.com/EggysOnCode/anomi/api/handlers"
 	"github.com/EggysOnCode/anomi/api/middleware"
+	"github.com/EggysOnCode/anomi/core/orderbook"
 	"github.com/EggysOnCode/anomi/core/orderbook/engine"
 	"github.com/EggysOnCode/anomi/storage"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/nikolaydubina/fpdecimal"
+	"go.uber.org/zap"
 )
 
 // Server represents a simplified API server
@@ -24,9 +26,10 @@ type Server struct {
 // Config holds server configuration
 type Config struct {
 	Port        string
-	Orderbook   *engine.OrderBook
+	Orderbooks  []*orderbook.OrderBook
 	KvDB        *storage.KvDB
 	MsgProducer handlers.MessageProducer
+	Logger      *zap.Logger
 }
 
 // NewServer creates a new simplified API server
@@ -34,15 +37,15 @@ func NewServer(config *Config) *Server {
 	e := echo.New()
 
 	// Initialize handlers
-	orderHandler := handlers.NewOrderHandler(config.Orderbook, config.KvDB, config.MsgProducer)
-	tradeHandler := handlers.NewTradeHandler(config.KvDB, config.MsgProducer)
-	receiptHandler := handlers.NewReceiptHandler(config.KvDB, config.MsgProducer)
+	orderHandler := handlers.NewOrderHandler(config.Orderbooks, config.KvDB, config.MsgProducer, config.Logger)
+	tradeHandler := handlers.NewTradeHandler(config.KvDB, config.MsgProducer, config.Logger)
+	receiptHandler := handlers.NewReceiptHandler(config.KvDB, config.MsgProducer, config.Logger)
 
 	// Setup middleware
 	e.Use(middleware.LoggingMiddleware())
 	e.Use(middleware.RequestIDMiddleware())
 	e.Use(middleware.ValidationMiddleware())
-	e.Use(middleware.JSONBindingMiddleware())
+	// e.Use(middleware.JSONBindingMiddleware()) // Commented out as it consumes request body
 	e.Use(middleware.AuthMiddleware())
 
 	// Setup routes
@@ -104,6 +107,7 @@ func setupRoutes(
 // Handler functions
 func handleOrderCreate(c echo.Context, handler *handlers.OrderHandler) error {
 	var req CreateOrderRequest
+
 	if err := c.Bind(&req); err != nil {
 		return c.JSON(http.StatusBadRequest, NewErrorResponse(
 			"Invalid request format",
@@ -111,11 +115,11 @@ func handleOrderCreate(c echo.Context, handler *handlers.OrderHandler) error {
 		))
 	}
 
-	// Validate request
-	if err := c.Validate(&req); err != nil {
+	// Basic validation
+	if req.OrderType == "" || req.UserID == "" || req.Quantity == "" || req.Symbol == "" {
 		return c.JSON(http.StatusBadRequest, NewErrorResponse(
-			"Validation failed",
-			err.Error(),
+			"Missing required fields",
+			"orderType, userID, quantity, and symbol are required",
 		))
 	}
 
@@ -230,7 +234,15 @@ func handleOrderCreate(c echo.Context, handler *handlers.OrderHandler) error {
 	}
 
 	// Process order through handler
-	result := handler.CreateOrder(c.Request().Context(), order)
+	// Symbol is required now
+	if req.Symbol == "" {
+		return c.JSON(http.StatusBadRequest, NewErrorResponse(
+			"Missing symbol",
+			"Symbol (BASE/QUOTE) is required",
+		))
+	}
+
+	result := handler.CreateOrder(c.Request().Context(), req.Symbol, order)
 	if result.Error != nil {
 		return c.JSON(http.StatusInternalServerError, NewErrorResponse(
 			"Order creation failed",
@@ -252,7 +264,13 @@ func handleOrderGet(c echo.Context, handler *handlers.OrderHandler) error {
 		})
 	}
 
-	result := handler.GetOrder(c.Request().Context(), orderID)
+	symbol := c.QueryParam("symbol")
+	if symbol == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Symbol query parameter is required",
+		})
+	}
+	result := handler.GetOrder(c.Request().Context(), symbol, orderID)
 	if result.Error != nil {
 		return c.JSON(http.StatusNotFound, map[string]string{
 			"error": result.Error.Error(),
@@ -300,7 +318,13 @@ func handleOrderUpdate(c echo.Context, handler *handlers.OrderHandler) error {
 	}
 
 	// Get existing order
-	getResult := handler.GetOrder(c.Request().Context(), orderID)
+	if req.Symbol == "" {
+		return c.JSON(http.StatusBadRequest, NewErrorResponse(
+			"Missing symbol",
+			"Symbol (BASE/QUOTE) is required",
+		))
+	}
+	getResult := handler.GetOrder(c.Request().Context(), req.Symbol, orderID)
 	if getResult.Error != nil {
 		return c.JSON(http.StatusNotFound, NewErrorResponse(
 			"Order not found",
@@ -334,7 +358,7 @@ func handleOrderUpdate(c echo.Context, handler *handlers.OrderHandler) error {
 	}
 
 	// Process order update through handler
-	result := handler.UpdateOrder(c.Request().Context(), updatedOrder)
+	result := handler.UpdateOrder(c.Request().Context(), req.Symbol, updatedOrder)
 	if result.Error != nil {
 		return c.JSON(http.StatusInternalServerError, NewErrorResponse(
 			"Order update failed",
@@ -356,7 +380,13 @@ func handleOrderCancel(c echo.Context, handler *handlers.OrderHandler) error {
 		})
 	}
 
-	result := handler.CancelOrder(c.Request().Context(), orderID)
+	symbol := c.QueryParam("symbol")
+	if symbol == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{
+			"error": "Symbol query parameter is required",
+		})
+	}
+	result := handler.CancelOrder(c.Request().Context(), symbol, orderID)
 	if result.Error != nil {
 		return c.JSON(http.StatusInternalServerError, map[string]string{
 			"error": result.Error.Error(),

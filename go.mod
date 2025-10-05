@@ -1,16 +1,14 @@
 module github.com/EggysOnCode/anomi
 
-go 1.23.8
-
-toolchain go1.24.6
+go 1.24.6
 
 require (
 	github.com/cockroachdb/pebble v1.1.5
-	github.com/ethereum/go-ethereum v1.16.2
 	github.com/gammazero/deque v0.2.1
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-set v0.1.13
 	github.com/hashicorp/golang-lru v1.0.2
+	github.com/labstack/echo/v4 v4.13.4
 	github.com/libp2p/go-libp2p v0.43.0
 	github.com/nikolaydubina/fpdecimal v0.16.0
 	github.com/rabbitmq/amqp091-go v1.10.0
@@ -41,7 +39,6 @@ require (
 	github.com/golang/snappy v0.0.5-0.20220116011046-fa5810519dcb // indirect
 	github.com/google/gopacket v1.1.19 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
-	github.com/holiman/uint256 v1.3.2 // indirect
 	github.com/huin/goupnp v1.3.0 // indirect
 	github.com/ipfs/go-cid v0.5.0 // indirect
 	github.com/ipfs/go-log/v2 v2.6.0 // indirect
@@ -53,7 +50,6 @@ require (
 	github.com/koron/go-ssdp v0.0.6 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kr/text v0.2.0 // indirect
-	github.com/labstack/echo/v4 v4.13.4 // indirect
 	github.com/labstack/gommon v0.4.2 // indirect
 	github.com/libp2p/go-buffer-pool v0.1.0 // indirect
 	github.com/libp2p/go-flow-metrics v0.2.0 // indirect

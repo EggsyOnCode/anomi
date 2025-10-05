@@ -5,7 +5,7 @@ const (
 	Password    = "guest"
 	Host        = "localhost"
 	VHost       = "/"
-	Exchange    = "amq.direct"
+	Exchange    = "amq.fanout"
 	QueueName   = "orderbook.ops"
 	RoutingKey  = "orderbook"
 	BindingKey  = "orderbook"

@@ -3,16 +3,17 @@ package storage
 import (
 	"context"
 	"fmt"
-	"log"
 
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 )
 
 type RabbitMQClient struct {
 	// TCP conncetion with rmqp server
 	conn *amqp.Connection
 	// channel is used to receive / produce messages
-	ch *amqp.Channel
+	ch     *amqp.Channel
+	logger *zap.Logger
 }
 
 // TLS is unncessary since all the comms will be local
@@ -25,25 +26,35 @@ func CreateRmqpConnection(username, password, host, vhost string) (*amqp.Connect
 	return conn, nil
 }
 
-func NewRabbitMQClient(conn *amqp.Connection) *RabbitMQClient {
+func NewRabbitMQClient(conn *amqp.Connection, logger *zap.Logger) *RabbitMQClient {
 	ch, err := conn.Channel()
 	if err != nil {
+		logger.Error("Failed to create RabbitMQ channel", zap.Error(err))
 		panic(err)
 	}
 
 	if err := ch.Confirm(false); err != nil {
+		logger.Error("Failed to set RabbitMQ channel confirmation", zap.Error(err))
 		panic(err)
 	}
 
+	logger.Info("RabbitMQ client initialized successfully")
 	return &RabbitMQClient{
-		conn: conn,
-		ch:   ch,
+		conn:   conn,
+		ch:     ch,
+		logger: logger,
 	}
 }
 
 // close closes the one of hte multiplexed channels and not the underlying TCP connections
 func (rc *RabbitMQClient) Close() error {
+	rc.logger.Info("Closing RabbitMQ client")
 	return rc.ch.Close()
+}
+
+// Conn exposes the underlying AMQP connection
+func (rc *RabbitMQClient) Conn() *amqp.Connection {
+	return rc.conn
 }
 
 // a wrapper method around amqp.Channel.QueueDeclare to avoid exposing the channel directly to the user
@@ -77,7 +88,7 @@ func (rc *RabbitMQClient) Send(ctx context.Context, exchange, routingKey string,
 	}
 
 	confirmation.Wait()
-	log.Printf("confirmation received!")
+	rc.logger.Debug("Message confirmation received")
 	return nil
 }
 

@@ -10,6 +10,7 @@ import (
 	"github.com/EggysOnCode/anomi/core/orderbook"
 	"github.com/EggysOnCode/anomi/core/orderbook/engine"
 	"github.com/EggysOnCode/anomi/rpc"
+	"go.uber.org/zap"
 )
 
 // P2PController handles P2P network messages
@@ -18,6 +19,7 @@ type P2PController struct {
 	orderHandler   *handlers.OrderHandler
 	tradeHandler   *handlers.TradeHandler
 	receiptHandler *handlers.ReceiptHandler
+	logger         *zap.Logger
 }
 
 // NewP2PController creates a new P2P controller
@@ -25,12 +27,14 @@ func NewP2PController(
 	orderHandler *handlers.OrderHandler,
 	tradeHandler *handlers.TradeHandler,
 	receiptHandler *handlers.ReceiptHandler,
+	logger *zap.Logger,
 ) *P2PController {
 	return &P2PController{
 		parser:         NewMessageParser(),
 		orderHandler:   orderHandler,
 		tradeHandler:   tradeHandler,
 		receiptHandler: receiptHandler,
+		logger:         logger,
 	}
 }
 
@@ -83,11 +87,20 @@ func (c *P2PController) handleOrderMessage(ctx *api.RequestContext, order *engin
 	// Route to appropriate handler method
 	switch internalMsg.Type {
 	case rpc.ORDER_PUT:
-		return c.orderHandler.CreateOrder(context.Background(), order)
+		if ctx.Symbol == "" {
+			return &handlers.HandlerResult{Error: fmt.Errorf("symbol is required"), Message: "Missing symbol"}
+		}
+		return c.orderHandler.CreateOrder(context.Background(), ctx.Symbol, order)
 	case rpc.ORDER_UPDATE:
-		return c.orderHandler.UpdateOrder(context.Background(), order)
+		if ctx.Symbol == "" {
+			return &handlers.HandlerResult{Error: fmt.Errorf("symbol is required"), Message: "Missing symbol"}
+		}
+		return c.orderHandler.UpdateOrder(context.Background(), ctx.Symbol, order)
 	case rpc.ORDER_DELETE:
-		return c.orderHandler.CancelOrder(context.Background(), order.ID())
+		if ctx.Symbol == "" {
+			return &handlers.HandlerResult{Error: fmt.Errorf("symbol is required"), Message: "Missing symbol"}
+		}
+		return c.orderHandler.CancelOrder(context.Background(), ctx.Symbol, order.ID())
 	default:
 		return &handlers.HandlerResult{
 			Error:   fmt.Errorf("unsupported order operation: %v", internalMsg.Type),

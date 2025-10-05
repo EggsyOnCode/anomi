@@ -10,10 +10,12 @@ import (
 	"github.com/cockroachdb/pebble"
 	"github.com/cockroachdb/pebble/vfs"
 	"github.com/nikolaydubina/fpdecimal"
+	"go.uber.org/zap"
 )
 
 type KvDB struct {
-	db *pebble.DB
+	db     *pebble.DB
+	logger *zap.Logger
 }
 
 // Validation errors
@@ -33,19 +35,23 @@ const (
 	MaxDataLength = 1024 * 1024 // 1MB
 )
 
-func NewDB(path string) (*KvDB, error) {
+func NewDB(path string, logger *zap.Logger) (*KvDB, error) {
 	// In memory database for testing
 	db, err := pebble.Open(path, &pebble.Options{FS: vfs.NewMem()})
 	if err != nil {
+		logger.Error("Failed to open KVDB", zap.String("path", path), zap.Error(err))
 		return nil, err
 	}
-	return &KvDB{db: db}, nil
+	logger.Info("KVDB initialized successfully", zap.String("path", path))
+	return &KvDB{db: db, logger: logger}, nil
 }
 
 func (kv *KvDB) Close() error {
 	if kv.db == nil {
+		kv.logger.Warn("Attempted to close already closed KVDB")
 		return ErrDatabaseClosed
 	}
+	kv.logger.Info("Closing KVDB")
 	return kv.db.Close()
 }
 
@@ -195,11 +201,13 @@ func sanitizeOrderData(order *engine.Order) *engine.Order {
 
 func (kv *KvDB) PutOrder(order *engine.Order) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot put order")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input data
 	if err := validateOrderData(order); err != nil {
+		kv.logger.Error("Order validation failed", zap.String("orderID", order.ID()), zap.Error(err))
 		return err
 	}
 
@@ -209,49 +217,63 @@ func (kv *KvDB) PutOrder(order *engine.Order) error {
 	// Marshal to JSON
 	orderBytes, err := order.MarshalJSON()
 	if err != nil {
+		kv.logger.Error("Failed to marshal order to JSON", zap.String("orderID", order.ID()), zap.Error(err))
 		return err
 	}
 
 	// Validate data size
 	if len(orderBytes) > MaxDataLength {
+		kv.logger.Error("Order data too large", zap.String("orderID", order.ID()), zap.Int("size", len(orderBytes)), zap.Int("maxSize", MaxDataLength))
 		return ErrInvalidData
 	}
 
 	// Create key and validate
 	key := []byte("order:" + order.ID())
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for order", zap.String("orderID", order.ID()), zap.Error(err))
 		return err
 	}
 
 	// Store with timestamp for audit trail
-	return kv.db.Set(key, orderBytes, pebble.Sync)
+	if err := kv.db.Set(key, orderBytes, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to store order in KVDB", zap.String("orderID", order.ID()), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Order stored successfully", zap.String("orderID", order.ID()))
+	return nil
 }
 
 func (kv *KvDB) GetOrder(id string) (*engine.Order, error) {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot get order")
 		return nil, ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid order ID", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Create key and validate
 	key := []byte("order:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for order", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Retrieve data
 	orderBytes, closer, err := kv.db.Get(key)
 	if err != nil {
+		kv.logger.Error("Failed to retrieve order from KVDB", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 	defer closer.Close()
 
 	// Validate data size
 	if len(orderBytes) > MaxDataLength {
+		kv.logger.Error("Order data too large", zap.String("orderID", id), zap.Int("size", len(orderBytes)), zap.Int("maxSize", MaxDataLength))
 		return nil, ErrInvalidData
 	}
 
@@ -259,91 +281,119 @@ func (kv *KvDB) GetOrder(id string) (*engine.Order, error) {
 	order := &engine.Order{}
 	err = order.UnmarshalJSON(orderBytes)
 	if err != nil {
+		kv.logger.Error("Failed to unmarshal order from JSON", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Validate retrieved data
 	if err := validateOrderData(order); err != nil {
+		kv.logger.Error("Retrieved order data validation failed", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
+	kv.logger.Debug("Order retrieved successfully", zap.String("orderID", id))
 	return order, nil
 }
 
 func (kv *KvDB) DeleteOrder(id string) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot delete order")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid order ID", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
 	// Create key and validate
 	key := []byte("order:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for order", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
-	return kv.db.Delete(key, pebble.Sync)
+	if err := kv.db.Delete(key, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to delete order from KVDB", zap.String("orderID", id), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Order deleted successfully", zap.String("orderID", id))
+	return nil
 }
 
 func (kv *KvDB) PutTradeOrder(tradeOrder *engine.TradeOrder) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot put trade order")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input data
 	if err := validateTradeOrderData(tradeOrder); err != nil {
+		kv.logger.Error("Trade order validation failed", zap.String("orderID", tradeOrder.OrderID), zap.Error(err))
 		return err
 	}
 
 	// Marshal to JSON
 	tradeOrderBytes, err := tradeOrder.MarshalJSON()
 	if err != nil {
+		kv.logger.Error("Failed to marshal trade order to JSON", zap.String("orderID", tradeOrder.OrderID), zap.Error(err))
 		return err
 	}
 
 	// Validate data size
 	if len(tradeOrderBytes) > MaxDataLength {
+		kv.logger.Error("Trade order data too large", zap.String("orderID", tradeOrder.OrderID), zap.Int("size", len(tradeOrderBytes)), zap.Int("maxSize", MaxDataLength))
 		return ErrInvalidData
 	}
 
 	// Create key and validate
 	key := []byte("trade:" + tradeOrder.OrderID)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for trade order", zap.String("orderID", tradeOrder.OrderID), zap.Error(err))
 		return err
 	}
 
-	return kv.db.Set(key, tradeOrderBytes, pebble.Sync)
+	if err := kv.db.Set(key, tradeOrderBytes, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to store trade order in KVDB", zap.String("orderID", tradeOrder.OrderID), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Trade order stored successfully", zap.String("orderID", tradeOrder.OrderID))
+	return nil
 }
 
 func (kv *KvDB) GetTradeOrder(id string) (*engine.TradeOrder, error) {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot get trade order")
 		return nil, ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid trade order ID", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Create key and validate
 	key := []byte("trade:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for trade order", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Retrieve data
 	tradeOrderBytes, closer, err := kv.db.Get(key)
 	if err != nil {
+		kv.logger.Error("Failed to retrieve trade order from KVDB", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 	defer closer.Close()
 
 	// Validate data size
 	if len(tradeOrderBytes) > MaxDataLength {
+		kv.logger.Error("Trade order data too large", zap.String("orderID", id), zap.Int("size", len(tradeOrderBytes)), zap.Int("maxSize", MaxDataLength))
 		return nil, ErrInvalidData
 	}
 
@@ -351,91 +401,119 @@ func (kv *KvDB) GetTradeOrder(id string) (*engine.TradeOrder, error) {
 	tradeOrder := &engine.TradeOrder{}
 	err = tradeOrder.UnmarshalJSON(tradeOrderBytes)
 	if err != nil {
+		kv.logger.Error("Failed to unmarshal trade order from JSON", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Validate retrieved data
 	if err := validateTradeOrderData(tradeOrder); err != nil {
+		kv.logger.Error("Retrieved trade order data validation failed", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
+	kv.logger.Debug("Trade order retrieved successfully", zap.String("orderID", id))
 	return tradeOrder, nil
 }
 
 func (kv *KvDB) DeleteTradeOrder(id string) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot delete trade order")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid trade order ID", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
 	// Create key and validate
 	key := []byte("trade:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for trade order", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
-	return kv.db.Delete(key, pebble.Sync)
+	if err := kv.db.Delete(key, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to delete trade order from KVDB", zap.String("orderID", id), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Trade order deleted successfully", zap.String("orderID", id))
+	return nil
 }
 
 func (kv *KvDB) PutReceipt(receipt *orderbook.Receipt) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot put receipt")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input data
 	if err := validateReceiptData(receipt); err != nil {
+		kv.logger.Error("Receipt validation failed", zap.String("orderID", receipt.OrderID), zap.Error(err))
 		return err
 	}
 
 	// Marshal to JSON
 	receiptBytes, err := receipt.MarshalJSON()
 	if err != nil {
+		kv.logger.Error("Failed to marshal receipt to JSON", zap.String("orderID", receipt.OrderID), zap.Error(err))
 		return err
 	}
 
 	// Validate data size
 	if len(receiptBytes) > MaxDataLength {
+		kv.logger.Error("Receipt data too large", zap.String("orderID", receipt.OrderID), zap.Int("size", len(receiptBytes)), zap.Int("maxSize", MaxDataLength))
 		return ErrInvalidData
 	}
 
 	// Create key and validate
 	key := []byte("receipt:" + receipt.OrderID)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for receipt", zap.String("orderID", receipt.OrderID), zap.Error(err))
 		return err
 	}
 
-	return kv.db.Set(key, receiptBytes, pebble.Sync)
+	if err := kv.db.Set(key, receiptBytes, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to store receipt in KVDB", zap.String("orderID", receipt.OrderID), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Receipt stored successfully", zap.String("orderID", receipt.OrderID))
+	return nil
 }
 
 func (kv *KvDB) GetReceipt(id string) (*orderbook.Receipt, error) {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot get receipt")
 		return nil, ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid receipt ID", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Create key and validate
 	key := []byte("receipt:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for receipt", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Retrieve data
 	receiptBytes, closer, err := kv.db.Get(key)
 	if err != nil {
+		kv.logger.Error("Failed to retrieve receipt from KVDB", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 	defer closer.Close()
 
 	// Validate data size
 	if len(receiptBytes) > MaxDataLength {
+		kv.logger.Error("Receipt data too large", zap.String("orderID", id), zap.Int("size", len(receiptBytes)), zap.Int("maxSize", MaxDataLength))
 		return nil, ErrInvalidData
 	}
 
@@ -443,34 +521,46 @@ func (kv *KvDB) GetReceipt(id string) (*orderbook.Receipt, error) {
 	receipt := &orderbook.Receipt{}
 	err = receipt.UnmarshalJSON(receiptBytes)
 	if err != nil {
+		kv.logger.Error("Failed to unmarshal receipt from JSON", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
 	// Validate retrieved data
 	if err := validateReceiptData(receipt); err != nil {
+		kv.logger.Error("Retrieved receipt data validation failed", zap.String("orderID", id), zap.Error(err))
 		return nil, err
 	}
 
+	kv.logger.Debug("Receipt retrieved successfully", zap.String("orderID", id))
 	return receipt, nil
 }
 
 func (kv *KvDB) DeleteReceipt(id string) error {
 	if kv.db == nil {
+		kv.logger.Error("KVDB is closed, cannot delete receipt")
 		return ErrDatabaseClosed
 	}
 
 	// Validate input
 	if err := validateID(id); err != nil {
+		kv.logger.Error("Invalid receipt ID", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
 	// Create key and validate
 	key := []byte("receipt:" + id)
 	if err := validateKey(key); err != nil {
+		kv.logger.Error("Invalid key for receipt", zap.String("orderID", id), zap.Error(err))
 		return err
 	}
 
-	return kv.db.Delete(key, pebble.Sync)
+	if err := kv.db.Delete(key, pebble.Sync); err != nil {
+		kv.logger.Error("Failed to delete receipt from KVDB", zap.String("orderID", id), zap.Error(err))
+		return err
+	}
+
+	kv.logger.Debug("Receipt deleted successfully", zap.String("orderID", id))
+	return nil
 }
 
 // Additional utility methods for data integrity
@@ -478,13 +568,18 @@ func (kv *KvDB) DeleteReceipt(id string) error {
 // IsHealthy checks if the database is in a healthy state
 func (kv *KvDB) IsHealthy() bool {
 	if kv.db == nil {
+		kv.logger.Warn("KVDB is nil, not healthy")
 		return false
 	}
 
 	// Try a simple operation to check if DB is responsive
 	_, _, err := kv.db.Get([]byte("health_check"))
 	// We expect an error (key not found), but not a closed DB error
-	return err == nil || err.Error() != "pebble: closed"
+	healthy := err == nil || err.Error() != "pebble: closed"
+	if !healthy {
+		kv.logger.Warn("KVDB health check failed", zap.Error(err))
+	}
+	return healthy
 }
 
 // GetStats returns basic database statistics

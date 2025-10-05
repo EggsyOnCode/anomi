@@ -7,19 +7,22 @@ import (
 	"github.com/EggysOnCode/anomi/core/orderbook/engine"
 	"github.com/EggysOnCode/anomi/storage"
 	"github.com/nikolaydubina/fpdecimal"
+	"go.uber.org/zap"
 )
 
 // TradeHandler handles trade-related business logic
 type TradeHandler struct {
 	kvdb        *storage.KvDB
 	msgProducer MessageProducer
+	logger      *zap.Logger
 }
 
 // NewTradeHandler creates a new trade handler
-func NewTradeHandler(kvdb *storage.KvDB, msgProducer MessageProducer) *TradeHandler {
+func NewTradeHandler(kvdb *storage.KvDB, msgProducer MessageProducer, logger *zap.Logger) *TradeHandler {
 	return &TradeHandler{
 		kvdb:        kvdb,
 		msgProducer: msgProducer,
+		logger:      logger,
 	}
 }
 
@@ -43,7 +46,7 @@ func (h *TradeHandler) CreateTrade(ctx context.Context, trade *engine.TradeOrder
 
 	// Publish message for PostgreSQL sync
 	if err := h.msgProducer.PublishTradeExecuted(trade); err != nil {
-		fmt.Printf("Warning: Failed to publish trade executed message: %v\n", err)
+		h.logger.Warn("Failed to publish trade executed message", zap.String("tradeID", trade.OrderID), zap.Error(err))
 	}
 
 	return &HandlerResult{

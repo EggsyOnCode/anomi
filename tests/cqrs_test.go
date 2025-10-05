@@ -3,7 +3,6 @@ package tests
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"testing"
 	"time"
 
@@ -34,7 +33,7 @@ func TestCQRSE2E(t *testing.T) {
 
 	// Step 1: Initialize KvDB (Command side)
 	t.Log("Initializing KvDB...")
-	kvdb, err := storage.NewDB("test_cqrs_orders")
+	kvdb, err := storage.NewDB("test_cqrs_orders", nil)
 	require.NoError(t, err)
 	defer kvdb.Close()
 
@@ -51,7 +50,7 @@ func TestCQRSE2E(t *testing.T) {
 
 	// Step 3: Initialize PostgreSQL with RabbitMQ consumer (Query side)
 	t.Log("Initializing PostgreSQL with RabbitMQ consumer...")
-	pgdb, err := storage.NewPgDB(config.PostgresDB, amqpConn)
+	pgdb, err := storage.NewPgDB(config.PostgresDB, amqpConn, nil, nil)
 	require.NoError(t, err)
 	defer pgdb.Close()
 
@@ -242,7 +241,7 @@ func publishEventsToRabbitMQ(conn *amqp.Connection, orders []*engine.Order, trad
 			return err
 		}
 
-		log.Printf("Published order event for %s", order.ID())
+		// Order event published
 	}
 
 	// Publish trade events
@@ -271,7 +270,7 @@ func publishEventsToRabbitMQ(conn *amqp.Connection, orders []*engine.Order, trad
 			return err
 		}
 
-		log.Printf("Published trade event for %s", trade.OrderID)
+		// Trade event published
 	}
 
 	// Publish receipt events
@@ -300,7 +299,7 @@ func publishEventsToRabbitMQ(conn *amqp.Connection, orders []*engine.Order, trad
 			return err
 		}
 
-		log.Printf("Published receipt event for %s", receipt.OrderID)
+		// Receipt event published
 	}
 
 	return nil
@@ -396,7 +395,7 @@ func TestCQRSWorkflowIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// Initialize all components
-	kvdb, err := storage.NewDB("test_integration")
+	kvdb, err := storage.NewDB("test_integration", nil)
 	require.NoError(t, err)
 	defer kvdb.Close()
 
@@ -409,7 +408,7 @@ func TestCQRSWorkflowIntegration(t *testing.T) {
 	require.NoError(t, err)
 	defer amqpConn.Close()
 
-	pgdb, err := storage.NewPgDB(config.PostgresDB, amqpConn)
+	pgdb, err := storage.NewPgDB(config.PostgresDB, amqpConn, nil, nil)
 	require.NoError(t, err)
 	defer pgdb.Close()
 

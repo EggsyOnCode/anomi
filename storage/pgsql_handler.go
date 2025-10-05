@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/EggysOnCode/anomi/core/orderbook"
@@ -14,6 +13,7 @@ import (
 	"github.com/nikolaydubina/fpdecimal"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/uptrace/bun"
+	"go.uber.org/zap"
 )
 
 // PgSQLHandler handles internal messages from RabbitMQ and performs database operations
@@ -23,10 +23,11 @@ type PgSQLHandler struct {
 	orderRepo   repositories.OrderRepository
 	tradeRepo   repositories.TradeRepository
 	receiptRepo repositories.ReceiptRepository
+	logger      *zap.Logger
 }
 
 // NewPgSQLHandler creates a new PostgreSQL handler
-func NewPgSQLHandler(db *bun.DB) *PgSQLHandler {
+func NewPgSQLHandler(db *bun.DB, logger *zap.Logger) *PgSQLHandler {
 	factory := repositories.NewRepositoryFactory(db)
 
 	return &PgSQLHandler{
@@ -35,6 +36,7 @@ func NewPgSQLHandler(db *bun.DB) *PgSQLHandler {
 		orderRepo:   factory.NewOrderRepository(),
 		tradeRepo:   factory.NewTradeRepository(),
 		receiptRepo: factory.NewReceiptRepository(),
+		logger:      logger,
 	}
 }
 
@@ -44,24 +46,24 @@ func (h *PgSQLHandler) HandleMessage(msg amqp.Delivery) error {
 	defer cancel()
 
 	// Log the received message
-	log.Printf("Received message: %s", string(msg.Body))
+	h.logger.Debug("Received message", zap.String("body", string(msg.Body)))
 
 	// Parse the internal message
 	internalMsg, err := rpc.FromBytes(msg.Body)
 	if err != nil {
-		log.Printf("Failed to decode internal message: %v", err)
+		h.logger.Error("Failed to decode internal message", zap.Error(err))
 		return h.ackMessage(msg, false) // Nack the message
 	}
 
 	// Validate the message
 	if err := h.validateMessage(internalMsg); err != nil {
-		log.Printf("Message validation failed: %v", err)
+		h.logger.Error("Message validation failed", zap.Error(err))
 		return h.ackMessage(msg, false) // Nack the message
 	}
 
 	// Process the message based on type
 	if err := h.processMessage(ctx, internalMsg); err != nil {
-		log.Printf("Failed to process message: %v", err)
+		h.logger.Error("Failed to process message", zap.Error(err))
 		return h.ackMessage(msg, false) // Nack the message
 	}
 
@@ -135,16 +137,17 @@ func (h *PgSQLHandler) handleOrderPut(ctx context.Context, msg *rpc.InternalMess
 	// Check if order already exists
 	existingOrder, err := h.orderRepo.GetByID(ctx, modelOrder.ID)
 	if err == nil && existingOrder.ID != "" {
-		log.Printf("Order %s already exists, skipping insert", modelOrder.ID)
+		h.logger.Debug("Order already exists, skipping insert", zap.String("orderID", modelOrder.ID))
 		return nil
 	}
 
 	// Create the order
 	if err := h.orderRepo.Create(ctx, *modelOrder); err != nil {
+		h.logger.Error("Failed to create order", zap.String("orderID", modelOrder.ID), zap.Error(err))
 		return fmt.Errorf("failed to create order: %w", err)
 	}
 
-	log.Printf("Successfully created order: %s", modelOrder.ID)
+	h.logger.Info("Successfully created order", zap.String("orderID", modelOrder.ID))
 	return nil
 }
 
@@ -164,16 +167,17 @@ func (h *PgSQLHandler) handleOrderDelete(ctx context.Context, msg *rpc.InternalM
 	// Check if order exists
 	_, err := h.orderRepo.GetByID(ctx, order.ID())
 	if err != nil {
-		log.Printf("Order %s not found for deletion: %v", order.ID(), err)
+		h.logger.Debug("Order not found for deletion", zap.String("orderID", order.ID()), zap.Error(err))
 		return nil // Don't treat as error if order doesn't exist
 	}
 
 	// Delete the order
 	if err := h.orderRepo.Delete(ctx, order.ID()); err != nil {
+		h.logger.Error("Failed to delete order", zap.String("orderID", order.ID()), zap.Error(err))
 		return fmt.Errorf("failed to delete order: %w", err)
 	}
 
-	log.Printf("Successfully deleted order: %s", order.ID())
+	h.logger.Info("Successfully deleted order", zap.String("orderID", order.ID()))
 	return nil
 }
 
@@ -196,15 +200,17 @@ func (h *PgSQLHandler) handleOrderUpdate(ctx context.Context, msg *rpc.InternalM
 	// Check if order exists
 	_, err := h.orderRepo.GetByID(ctx, modelOrder.ID)
 	if err != nil {
+		h.logger.Error("Order not found for update", zap.String("orderID", modelOrder.ID), zap.Error(err))
 		return fmt.Errorf("order %s not found for update: %w", modelOrder.ID, err)
 	}
 
 	// Update the order
 	if err := h.orderRepo.Update(ctx, *modelOrder); err != nil {
+		h.logger.Error("Failed to update order", zap.String("orderID", modelOrder.ID), zap.Error(err))
 		return fmt.Errorf("failed to update order: %w", err)
 	}
 
-	log.Printf("Successfully updated order: %s", modelOrder.ID)
+	h.logger.Info("Successfully updated order", zap.String("orderID", modelOrder.ID))
 	return nil
 }
 
@@ -227,16 +233,17 @@ func (h *PgSQLHandler) handleTradePut(ctx context.Context, msg *rpc.InternalMess
 	// Check if trade already exists (by ID)
 	existingTrade, err := h.tradeRepo.GetByID(ctx, modelTrade.ID)
 	if err == nil && existingTrade.ID != "" {
-		log.Printf("Trade %s already exists, skipping insert", modelTrade.ID)
+		h.logger.Debug("Trade already exists, skipping insert", zap.String("tradeID", modelTrade.ID))
 		return nil
 	}
 
 	// Create the trade
 	if err := h.tradeRepo.Create(ctx, modelTrade); err != nil {
+		h.logger.Error("Failed to create trade", zap.String("tradeID", modelTrade.ID), zap.Error(err))
 		return fmt.Errorf("failed to create trade: %w", err)
 	}
 
-	log.Printf("Successfully created trade: %s", modelTrade.ID)
+	h.logger.Info("Successfully created trade", zap.String("tradeID", modelTrade.ID))
 	return nil
 }
 
@@ -261,16 +268,17 @@ func (h *PgSQLHandler) handleReceiptPut(ctx context.Context, msg *rpc.InternalMe
 		// Check if receipt already exists
 		existingReceipt, err := h.receiptRepo.GetByID(ctx, modelReceipt.ID)
 		if err == nil && existingReceipt.ID != "" {
-			log.Printf("Receipt %s already exists, skipping insert", modelReceipt.ID)
+			h.logger.Debug("Receipt already exists, skipping insert", zap.String("receiptID", modelReceipt.ID))
 			continue
 		}
 
 		// Create the receipt
 		if err := h.receiptRepo.Create(ctx, modelReceipt); err != nil {
+			h.logger.Error("Failed to create receipt", zap.String("receiptID", modelReceipt.ID), zap.Error(err))
 			return fmt.Errorf("failed to create receipt %s: %w", modelReceipt.ID, err)
 		}
 
-		log.Printf("Successfully created receipt: %s", modelReceipt.ID)
+		h.logger.Info("Successfully created receipt", zap.String("receiptID", modelReceipt.ID))
 	}
 
 	return nil

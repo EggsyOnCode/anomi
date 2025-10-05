@@ -40,6 +40,7 @@ type CreateOrderRequest struct {
 	OrderType string `json:"orderType" validate:"required,oneof=MARKET LIMIT STOP-LIMIT"`
 	UserID    string `json:"userID" validate:"required,min=1"`
 	Side      int    `json:"side" validate:"required,oneof=0 1"` // 0 = BUY, 1 = SELL
+	Symbol    string `json:"symbol" validate:"required,min=3"`   // BASE/QUOTE
 	IsQuote   bool   `json:"isQuote"`
 	Quantity  string `json:"quantity" validate:"required,min=1"`
 	Price     string `json:"price"` // Required for LIMIT and STOP-LIMIT orders
@@ -49,6 +50,7 @@ type CreateOrderRequest struct {
 }
 
 type UpdateOrderRequest struct {
+	Symbol   string `json:"symbol" validate:"required,min=3"`
 	Quantity string `json:"quantity" validate:"omitempty,min=1"`
 	Price    string `json:"price" validate:"omitempty,min=1"`
 	Stop     string `json:"stop" validate:"omitempty,min=1"`

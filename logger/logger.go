@@ -59,6 +59,11 @@ func Get() *zap.Logger {
 	return logger
 }
 
+// GetWithNodeID returns a logger with node ID field embedded
+func GetWithNodeID(nodeID string) *zap.Logger {
+	return Get().With(zap.String("node_id", nodeID))
+}
+
 // FromCtx returns the Logger associated with the ctx. If no logger
 // is associated, the default logger is returned, unless it is nil
 // in which case a disabled logger is returned.

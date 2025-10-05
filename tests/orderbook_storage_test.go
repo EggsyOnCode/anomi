@@ -12,7 +12,7 @@ import (
 )
 
 func TestKvDB_OrderOperations(t *testing.T) {
-	db, err := storage.NewDB("test_orders")
+	db, err := storage.NewDB("test_orders", nil)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -162,7 +162,7 @@ func TestKvDB_OrderOperations(t *testing.T) {
 }
 
 func TestKvDB_TradeOrderOperations(t *testing.T) {
-	db, err := storage.NewDB("test_trades")
+	db, err := storage.NewDB("test_trades", nil)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -258,7 +258,7 @@ func TestKvDB_TradeOrderOperations(t *testing.T) {
 }
 
 func TestKvDB_ReceiptOperations(t *testing.T) {
-	db, err := storage.NewDB("test_receipts")
+	db, err := storage.NewDB("test_receipts", nil)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -368,7 +368,7 @@ func TestKvDB_ReceiptOperations(t *testing.T) {
 }
 
 func TestKvDB_DataIntegrity(t *testing.T) {
-	db, err := storage.NewDB("test_integrity")
+	db, err := storage.NewDB("test_integrity", nil)
 	require.NoError(t, err)
 	defer db.Close()
 
@@ -485,7 +485,7 @@ func TestKvDB_DataIntegrity(t *testing.T) {
 }
 
 func TestKvDB_ErrorHandling(t *testing.T) {
-	db, err := storage.NewDB("test_errors")
+	db, err := storage.NewDB("test_errors", nil)
 	require.NoError(t, err)
 
 	t.Run("Database Operations After Close", func(t *testing.T) {
@@ -495,7 +495,7 @@ func TestKvDB_ErrorHandling(t *testing.T) {
 
 		// Try to perform operations after close
 		order := engine.NewLimitOrder("test", engine.Buy, fpdecimal.FromInt(100), fpdecimal.FromInt(1), engine.GTC, "", "user")
-		
+
 		// Use defer/recover to catch panics and convert to errors
 		func() {
 			defer func() {
@@ -506,7 +506,7 @@ func TestKvDB_ErrorHandling(t *testing.T) {
 			db.PutOrder(order)
 			t.Error("Expected panic but got no error")
 		}()
-		
+
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -516,7 +516,7 @@ func TestKvDB_ErrorHandling(t *testing.T) {
 			db.GetOrder("test")
 			t.Error("Expected panic but got no error")
 		}()
-		
+
 		func() {
 			defer func() {
 				if r := recover(); r != nil {

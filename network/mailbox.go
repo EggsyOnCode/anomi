@@ -1,69 +1,62 @@
 package network
 
 import (
-	"log"
 	"sync"
 
-	"github.com/EggysOnCode/anomi/config"
+	"github.com/EggysOnCode/anomi/logger"
+	"github.com/EggysOnCode/anomi/rpc"
 	"github.com/EggysOnCode/anomi/storage"
 	amqp "github.com/rabbitmq/amqp091-go"
+	"go.uber.org/zap"
 )
 
 // privatekey for singing, id, etc..
 type NodeInfo struct {
+	Id         string // from id for rpc msgs
+	PrivateKey string
 }
 
 type MailboxConfig struct {
-	Transport *LibP2pTransport
-	Amqp      *amqp.Connection
-	ApiServer string // port
-	NodeInfo  *NodeInfo
+	P2pServer   *Server
+	Amqp        *amqp.Connection
+	NodeInfo    *NodeInfo
+	RabbitMQCfg *storage.RabbitMQConfig
 }
 
 type Mailbox struct {
-	outCh chan []byte
-	mu    *sync.RWMutex
-	cfg   *MailboxConfig
+	outCh  chan []byte
+	mu     *sync.RWMutex
+	cfg    *MailboxConfig
+	logger *zap.Logger
 }
 
 func NewMailbox(cfg *MailboxConfig) *Mailbox {
 	out := make(chan []byte, 1000)
+	mailboxLogger := logger.Get()
 
 	box := &Mailbox{
-		outCh: out,
-		cfg:   cfg,
+		outCh:  out,
+		cfg:    cfg,
+		mu:     &sync.RWMutex{},
+		logger: mailboxLogger,
 	}
 
-	go box.launchBroadcast()
-	// go box.broadcast()
-	go box.listen()
+	go box.launchBroadcast() // consumes and saves to outch
+	go box.broadcast()       // sends msgs to p2p server
 
 	return box
 }
 
 // consumes from rabbitmq and broadcasts to the p2p network
 func (m *Mailbox) launchBroadcast() error {
-	// Create consumer configuration
-	config := &storage.RabbitMQConfig{
-		Username:    config.Username,
-		Password:    config.Password,
-		Host:        config.Host,
-		VHost:       config.VHost,
-		Exchange:    config.Exchange,
-		QueueName:   config.QueueName,
-		RoutingKey:  config.RoutingKey,
-		BindingKey:  config.BindingKey,
-		ConsumerTag: config.ConsumerTag,
-	}
-
 	// Create consumer
-	consumer, err := storage.NewRabbitMQConsumer(m.cfg.Amqp, config)
+	consumer, err := storage.NewRabbitMQConsumer(m.cfg.Amqp, m.cfg.RabbitMQCfg)
 	if err != nil {
 		return err
 	}
 
 	// Setup queue
-	if err := consumer.SetupQueue(); err != nil {
+	if err := consumer.SetupQueue(false); err != nil {
 		return err
 	}
 
@@ -73,11 +66,11 @@ func (m *Mailbox) launchBroadcast() error {
 
 		msgs, err := consumer.Consume()
 		if err != nil {
-			log.Printf("Failed to start consumer: %v", err)
+			m.logger.Error("Failed to start consumer", zap.Error(err))
 			return
 		}
 
-		log.Println("Mailbox consumer started, waiting for messages...")
+		m.logger.Info("Mailbox consumer started, waiting for messages...")
 
 		for msg := range msgs {
 			m.Out(msg.Body) // forward the msg to the api server
@@ -93,20 +86,18 @@ func (m *Mailbox) Out(msg []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// p2pserver will auto format intenral msgs to rpc msgs
 	m.outCh <- msg
 }
 
 func (m *Mailbox) broadcast() {
 	for msg := range m.outCh {
-		m.cfg.Transport.Broadcast(msg)
-	}
-}
-
-func (m *Mailbox) listen() {
-	msgs := m.cfg.Transport.ConsumeMsgs()
-	for msg := range msgs {
-		// TODO: replace this with api gateway or something else that should be handling the msg
-		m.outCh <- msg.Payload
+		internalMsg, err := rpc.FromBytes(msg)
+		if err != nil {
+			m.logger.Error("Failed to convert msg to internal message", zap.Error(err))
+			continue
+		}
+		m.cfg.P2pServer.BroadcastMsg(internalMsg)
 	}
 }
 

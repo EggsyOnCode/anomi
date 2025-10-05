@@ -3,44 +3,50 @@ package storage
 import (
 	"context"
 	"database/sql"
-	"log"
 
-	"github.com/EggysOnCode/anomi/config"
 	"github.com/EggysOnCode/anomi/storage/models"
 	"github.com/EggysOnCode/anomi/storage/repositories"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/driver/pgdriver"
+	"go.uber.org/zap"
 )
 
 type PgDB struct {
-	db      *bun.DB
-	amqp    *amqp.Connection
-	factory repositories.RepositoryFactory
-	handler *PgSQLHandler
+	db          *bun.DB
+	amqp        *amqp.Connection
+	rabbitmqCfg *RabbitMQConfig
+	factory     repositories.RepositoryFactory
+	handler     *PgSQLHandler
+	logger      *zap.Logger
 }
 
-func NewPgDB(conn string, amqp *amqp.Connection) (*PgDB, error) {
+func NewPgDB(conn string, amqp *amqp.Connection, rabbitmqCfg *RabbitMQConfig, logger *zap.Logger) (*PgDB, error) {
 	sqldb := sql.OpenDB(pgdriver.NewConnector(
 		pgdriver.WithDSN(conn),
 	))
 	db := bun.NewDB(sqldb, pgdialect.New())
 
 	pgdb := &PgDB{
-		db:      db,
-		amqp:    amqp,
-		factory: repositories.NewRepositoryFactory(db),
-		handler: NewPgSQLHandler(db),
+		db:          db,
+		amqp:        amqp,
+		rabbitmqCfg: rabbitmqCfg,
+		factory:     repositories.NewRepositoryFactory(db),
+		handler:     NewPgSQLHandler(db, logger),
+		logger:      logger,
 	}
 
 	if err := pgdb.setupDb(); err != nil {
+		logger.Error("Failed to setup PostgreSQL database", zap.Error(err))
 		return nil, err
 	}
 	if err := pgdb.launchConsumer(); err != nil {
+		logger.Error("Failed to launch PostgreSQL consumer", zap.Error(err))
 		return nil, err
 	}
 
+	logger.Info("PostgreSQL database initialized successfully")
 	return pgdb, nil
 }
 
@@ -113,33 +119,20 @@ func (pg *PgDB) setupDb() error {
 			return err
 		}
 
-		log.Println("Database tables and indexes created successfully")
+		pg.logger.Info("Database tables and indexes created successfully")
 		return nil
 	})
 }
 
 func (pg *PgDB) launchConsumer() error {
-	// Create consumer configuration
-	config := &RabbitMQConfig{
-		Username:    config.Username,
-		Password:    config.Password,
-		Host:        config.Host,
-		VHost:       config.VHost,
-		Exchange:    config.Exchange,
-		QueueName:   config.QueueName,
-		RoutingKey:  config.RoutingKey,
-		BindingKey:  config.BindingKey,
-		ConsumerTag: config.ConsumerTag,
-	}
-
 	// Create consumer
-	consumer, err := NewRabbitMQConsumer(pg.amqp, config)
+	consumer, err := NewRabbitMQConsumer(pg.amqp, pg.rabbitmqCfg)
 	if err != nil {
 		return err
 	}
 
 	// Setup queue
-	if err := consumer.SetupQueue(); err != nil {
+	if err := consumer.SetupQueue(true); err != nil {
 		return err
 	}
 
@@ -149,13 +142,14 @@ func (pg *PgDB) launchConsumer() error {
 
 		msgs, err := consumer.Consume()
 		if err != nil {
-			log.Printf("Failed to start consumer: %v", err)
+			pg.logger.Error("Failed to start consumer", zap.Error(err))
 			return
 		}
 
-		log.Println("PostgreSQL consumer started, waiting for messages...")
+		pg.logger.Info("PostgreSQL consumer started, waiting for messages...")
 
 		for msg := range msgs {
+			pg.logger.Info("Received message from RabbitMQ", zap.String("messageID", msg.MessageId), zap.String("routingKey", msg.RoutingKey))
 			pg.handleMessage(msg)
 		}
 	}()
@@ -164,9 +158,12 @@ func (pg *PgDB) launchConsumer() error {
 }
 
 func (pg *PgDB) handleMessage(msg amqp.Delivery) {
+	pg.logger.Info("Processing message", zap.String("messageID", msg.MessageId), zap.String("body", string(msg.Body)))
 	// Delegate to the handler
 	if err := pg.handler.HandleMessage(msg); err != nil {
-		log.Printf("Failed to handle message: %v", err)
+		pg.logger.Error("Failed to handle message", zap.Error(err))
+	} else {
+		pg.logger.Info("Successfully processed message", zap.String("messageID", msg.MessageId))
 	}
 }
 
@@ -177,6 +174,7 @@ func (pg *PgDB) GetHandler() *PgSQLHandler {
 
 // Close closes the database connection
 func (pg *PgDB) Close() error {
+	pg.logger.Info("Closing PostgreSQL database connection")
 	return pg.db.Close()
 }
 

@@ -6,19 +6,22 @@ import (
 
 	"github.com/EggysOnCode/anomi/core/orderbook"
 	"github.com/EggysOnCode/anomi/storage"
+	"go.uber.org/zap"
 )
 
 // ReceiptHandler handles receipt-related business logic
 type ReceiptHandler struct {
 	kvdb        *storage.KvDB
 	msgProducer MessageProducer
+	logger      *zap.Logger
 }
 
 // NewReceiptHandler creates a new receipt handler
-func NewReceiptHandler(kvdb *storage.KvDB, msgProducer MessageProducer) *ReceiptHandler {
+func NewReceiptHandler(kvdb *storage.KvDB, msgProducer MessageProducer, logger *zap.Logger) *ReceiptHandler {
 	return &ReceiptHandler{
 		kvdb:        kvdb,
 		msgProducer: msgProducer,
+		logger:      logger,
 	}
 }
 
@@ -42,7 +45,7 @@ func (h *ReceiptHandler) CreateReceipt(ctx context.Context, receipt *orderbook.R
 
 	// Publish message for PostgreSQL sync
 	if err := h.msgProducer.PublishReceiptGenerated(receipt); err != nil {
-		fmt.Printf("Warning: Failed to publish receipt generated message: %v\n", err)
+		h.logger.Warn("Failed to publish receipt generated message", zap.String("receiptID", receipt.OrderID), zap.Error(err))
 	}
 
 	return &HandlerResult{
