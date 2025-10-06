@@ -9,7 +9,7 @@ test:
 
 # Run the P2P test with two nodes and order generation
 test-p2p:
-	go run main.go
+	LOG_LEVEL=DEBUG go run main.go
 
 # Generate orders for a specific node
 generate-orders:

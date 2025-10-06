@@ -12,7 +12,7 @@ import (
 )
 
 // CreateNode creates a new node with the specified configuration
-func CreateNode(nodeID, httpPort, listenAddr, kvdbPath, dbConn string, books []node.OrderBookCfg, bootstrapNodes []string) *node.Node {
+func CreateNode(nodeID, httpPort, listenAddr, kvdbPath, dbConn string, books []node.OrderBookCfg, bootstrapNodes []string, rabbitmqPort string) *node.Node {
 	cfg := &node.NodeConfig{
 		Books:          books,
 		HttpServerPort: httpPort,
@@ -21,7 +21,7 @@ func CreateNode(nodeID, httpPort, listenAddr, kvdbPath, dbConn string, books []n
 		RabbitmqCfg: storage.RabbitMQConfig{
 			Username:    "guest",
 			Password:    "guest",
-			Host:        "localhost:5672",
+			Host:        rabbitmqPort, // "localhost:5672"
 			VHost:       "/",
 			Exchange:    "test_exchange",
 			QueueName:   "test_queue",
@@ -83,64 +83,80 @@ func main() {
 	node1 := CreateNode(
 		"node1",
 		"8081",
-		"/ip4/127.0.0.1/tcp/0",
+		"localhost:9001",
 		tempDir1,
 		"postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable",
 		books,
-		[]string{},
+		[]string{"localhost:9000"},
+		"localhost:5672",
 	)
+	if node1 == nil {
+		fmt.Println("Failed to create Node 1. Continuing without Node 1.")
+	}
 
 	// Create second node
 	fmt.Println("Creating Node 2...")
 	node2 := CreateNode(
 		"node2",
 		"8082",
-		"/ip4/127.0.0.1/tcp/0",
+		"localhost:9000",
 		tempDir2,
-		"postgres://testuser:testpass@localhost:5432/testdb?sslmode=disable",
+		"postgres://testuser:testpass@localhost:5433/testdb1?sslmode=disable",
 		books,
-		[]string{},
+		[]string{"localhost:9001"},
+		"localhost:5673",
 	)
+	if node2 == nil {
+		fmt.Println("Failed to create Node 2. Continuing without Node 2.")
+	}
 
 	// Start both nodes
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Start node 1
-	go func() {
-		if err := node1.Start(ctx); err != nil {
-			fmt.Printf("Node 1 error: %v\n", err)
-		}
-	}()
+	if node1 != nil {
+		go func() {
+			if err := node1.Start(ctx); err != nil {
+				fmt.Printf("Node 1 error: %v\n", err)
+			}
+		}()
+	}
 
 	// Wait a bit for node 1 to start its discovery service
 	time.Sleep(2 * time.Second)
 
 	// Start node 2
-	go func() {
-		if err := node2.Start(ctx); err != nil {
-			fmt.Printf("Node 2 error: %v\n", err)
-		}
-	}()
+	if node2 != nil {
+		go func() {
+			if err := node2.Start(ctx); err != nil {
+				fmt.Printf("Node 2 error: %v\n", err)
+			}
+		}()
+	}
 
 	// Wait a bit for nodes to start
 	time.Sleep(3 * time.Second)
 
 	// Run order generation script for node 1
-	fmt.Println("Starting order generation for Node 1...")
-	go func() {
-		if err := runOrderScript("node1"); err != nil {
-			fmt.Printf("Order script error: %v\n", err)
-		}
-	}()
+	if node1 != nil {
+		fmt.Println("Starting order generation for Node 1...")
+		go func() {
+			if err := runOrderScript("node1"); err != nil {
+				fmt.Printf("Order script error: %v\n", err)
+			}
+		}()
+	}
 
 	// Run order generation script for node 2
-	fmt.Println("Starting order generation for Node 2...")
-	go func() {
-		if err := runOrderScript("node2"); err != nil {
-			fmt.Printf("Order script error: %v\n", err)
-		}
-	}()
+	if node2 != nil {
+		fmt.Println("Starting order generation for Node 2...")
+		go func() {
+			if err := runOrderScript("node2"); err != nil {
+				fmt.Printf("Order script error: %v\n", err)
+			}
+		}()
+	}
 
 	// Keep running until interrupted
 	fmt.Println("Nodes started. Press Ctrl+C to stop...")

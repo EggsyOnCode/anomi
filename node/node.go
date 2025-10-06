@@ -34,8 +34,9 @@ func NewNode(cfg *NodeConfig) *Node {
 		return nil // we need at least one book to run the node
 	}
 
+	nodeID := uuid.NewString()
 	// Initialize logger with node ID (will be set after node creation)
-	nodeLogger := logger.Get()
+	nodeLogger := logger.GetWithNodeID(nodeID)
 
 	var books []*orderbook.OrderBook
 
@@ -119,7 +120,6 @@ func NewNode(cfg *NodeConfig) *Node {
 	}
 	apiServer := api.NewServer(apiCfg)
 
-	nodeID := uuid.NewString()
 	return &Node{
 		id:        nodeID,
 		cfg:       cfg,
@@ -129,7 +129,7 @@ func NewNode(cfg *NodeConfig) *Node {
 		p2pServer: p2pServer,
 		mailbox:   mailbox,
 		pk:        *pk,
-		logger:    logger.GetWithNodeID(nodeID),
+		logger:    nodeLogger,
 	}
 }
 

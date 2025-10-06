@@ -21,7 +21,6 @@ import (
 	"go.uber.org/zap"
 
 	rcmgr "github.com/libp2p/go-libp2p/p2p/host/resource-manager"
-	libp2ptls "github.com/libp2p/go-libp2p/p2p/security/tls"
 )
 
 const (
@@ -74,7 +73,7 @@ func (lt *LibP2pTransport) Start() {
 		libp2p.ListenAddrStrings(
 			"/ip4/0.0.0.0/tcp/0",
 		),
-		libp2p.Security(libp2ptls.ID, libp2ptls.New),
+		// libp2p.Security(libp2ptls.ID, libp2ptls.New),
 	)
 
 	if err != nil {

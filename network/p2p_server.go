@@ -279,9 +279,11 @@ func (s *Server) handleNewPeer(peer *Peer) {
 
 	// Create protocol peer
 	pPeer := &ProtocolPeer{
-		ServerID: "",
+		ServerID: peer.ID,
 		Peer:     peer,
 	}
+
+	s.logger.Info("peer found with id", peer.ID, "and addr", peer.Addr)
 
 	// Add to peer map
 	s.peers[peer.ID] = pPeer
